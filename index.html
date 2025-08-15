@@ -12,14 +12,15 @@
     --text:#ffffff;
     --muted:#cfd3da;
     --accent:#7dd3fc;
-    --scale: min(100vw/1920, 100vh/1080);
+    --scale: min((100vw/1920) * 0.98, (100vh/1080) * 0.98);
   }
   *{box-sizing:border-box}
   html,body{height:100%}
   body { margin:0; background: radial-gradient(1200px 800px at 20% 0%, #0f1216 0%, var(--bg) 60%); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; overflow:hidden; transition: background 800ms ease; }
 
   /* Fixed 1080p stage that scales to fit the screen */
-  .stage{ width:1920px; height:1080px; transform: scale(var(--scale)); transform-origin: top left; }
+  .viewport{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+  .stage{ width:1920px; height:1080px; transform: scale(var(--scale)); transform-origin: center center; }
 
   .wrap{position:relative; width:100%; height:100%; padding:24px 32px; display:flex; flex-direction:column; justify-content:space-between;}
   .top{display:flex; align-items:center; justify-content:space-between;}
@@ -63,32 +64,34 @@
 </style>
 </head>
 <body>
-<div class="stage">
-  <div class="wrap">
-    <div class="top">
-      <img id="logo" src="ttp logo.001.png" alt="The Two Pennies logo" />
-      <div class="right">
-        <div id="clock">--:--</div>
-        <div id="date">&nbsp;</div>
-      </div>
-    </div>
-
-    <div class="middle">
-      <section id="weather" aria-live="polite">
-        <h2>Weather · <span id="loc">North Shields</span></h2>
-        <div class="hour-grid" id="hourGrid"></div>
-      </section>
-
-      <div id="main-content">
-        <h2>Headlines</h2>
-        <div class="news-viewport">
-          <ul id="newsRail" class="news-rail" style="list-style:none; padding:0; margin:0"></ul>
+<div class="viewport">
+  <div class="stage">
+    <div class="wrap">
+      <div class="top">
+        <img id="logo" src="ttp logo.001.png" alt="The Two Pennies logo" />
+        <div class="right">
+          <div id="clock">--:--</div>
+          <div id="date">&nbsp;</div>
         </div>
       </div>
-    </div>
 
-    <div id="newsbar" aria-live="polite">
-      <div class="track"><span class="marquee" id="newsText"><span class="tag">TTP News</span> Loading…</span></div>
+      <div class="middle">
+        <section id="weather" aria-live="polite">
+          <h2>Weather · <span id="loc">North Shields</span></h2>
+          <div class="hour-grid" id="hourGrid"></div>
+        </section>
+
+        <div id="main-content">
+          <h2>Headlines</h2>
+          <div class="news-viewport">
+            <ul id="newsRail" class="news-rail" style="list-style:none; padding:0; margin:0"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div id="newsbar" aria-live="polite">
+        <div class="track"><span class="marquee" id="newsText"><span class="tag">TTP News</span> Loading…</span></div>
+      </div>
     </div>
   </div>
 </div>
@@ -189,6 +192,10 @@
 
     const render = (items)=>{
       const titles = items.map(it => it.title || it).filter(Boolean);
+      if(!titles.length){
+        rail.innerHTML = `<li class="news-item">No headlines available right now.</li>`;
+        return;
+      }
       const cards = titles.slice(0,12).map(t => `<li class=\"news-item\">${t}</li>`).join('');
       // Duplicate for seamless loop
       rail.innerHTML = cards + cards;
@@ -200,6 +207,9 @@
       if(r1.ok){
         const d1 = await r1.json();
         if(d1 && d1.items && d1.items.length){ render(d1.items); return; }
+        console.warn('rss-proxy returned no items', d1);
+      } else {
+        console.warn('rss-proxy HTTP error', r1.status);
       }
       throw new Error('Proxy unavailable or empty');
     }catch(err){
@@ -217,26 +227,36 @@
 
   function startVerticalScroll(){
     const rail = document.getElementById('newsRail');
-    const viewport = rail.parentElement; // .news-viewport
+    const viewport = rail.closest('.news-viewport');
     let pos = 0; // px
+    let paused = false;
 
-    // compute total scroll distance: half the rail height (since duplicated)
     function step(){
-      const half = rail.scrollHeight / 2;
-      pos += 0.5; // speed (px per frame approx at 60fps => ~30px/sec)
-      if(pos >= half) pos = 0;
-      rail.style.transform = `translateY(${-pos}px)`;
+      const half = rail.scrollHeight / 2 || 1;
+      if(!paused){
+        pos += 0.5; // speed (px per frame)
+        if(pos >= half) pos = 0;
+        rail.style.transform = `translateY(${-pos}px)`;
+      }
       requestAnimationFrame(step);
     }
-    // ensure rail is tall enough before starting
-    requestAnimationFrame(step);
 
-    // Pause on hover (if needed during testing)
-    viewport.addEventListener('mouseenter', ()=> rail.dataset.pause = '1');
-    viewport.addEventListener('mouseleave', ()=> rail.dataset.pause = '0');
+    if(viewport){
+      viewport.addEventListener('mouseenter', ()=> paused = true);
+      viewport.addEventListener('mouseleave', ()=> paused = false);
+    }
+
+    requestAnimationFrame(step);
   }
 
   loadLiveHeadlines();
+
+  // ====== Light self-tests (console) ======
+  (function selfTests(){
+    console.assert(document.getElementById('newsRail'), '#newsRail exists');
+    console.assert(document.getElementById('hourGrid'), '#hourGrid exists');
+    console.assert(typeof startVerticalScroll === 'function', 'startVerticalScroll defined');
+  })();
 </script>
 
 <!-- Netlify Function remains the same as previous version (at /netlify/functions/rss-proxy.js) -->
