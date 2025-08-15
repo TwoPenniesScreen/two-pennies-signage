@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Two Pennies • Live Screen (1080p)</title>
+<style>
+  :root{
+    --bg:#111316;
+    --panel:rgba(255,255,255,0.08);
+    --panel-strong:rgba(255,255,255,0.12);
+    --text:#ffffff;
+    --muted:#cfd3da;
+    --accent:#7dd3fc;
+    --scale: min(100vw/1920, 100vh/1080);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body { margin:0; background: radial-gradient(1200px 800px at 20% 0%, #0f1216 0%, var(--bg) 60%); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; overflow:hidden; transition: background 800ms ease; }
+
+  /* Fixed 1080p stage that scales to fit the screen */
+  .stage{ width:1920px; height:1080px; transform: scale(var(--scale)); transform-origin: top left; }
+
+  .wrap{position:relative; width:100%; height:100%; padding:24px 32px; display:flex; flex-direction:column; justify-content:space-between;}
+  .top{display:flex; align-items:center; justify-content:space-between;}
+  #logo{width:480px; max-width:25vw; height:auto; object-fit:contain;}
+
+  .right{display:flex; flex-direction:column; align-items:center;}
+  #clock, #date{display:inline-block; width:max-content; text-align:center; background:var(--panel); border-radius:12px;}
+  #clock{font-size:86px; font-weight:700; letter-spacing:0.03em; padding:6px 14px;}
+  #date{font-size:28px; color:var(--muted); padding:6px 14px; margin-top:6px;}
+
+  .middle{flex:1; display:flex; align-items:stretch; gap:32px; margin:24px 0;}
+
+  /* Weather panel */
+  #weather{flex:1; background:var(--panel); border:1px solid var(--panel-strong); border-radius:16px; padding:24px 32px; display:flex; flex-direction:column;}
+  #weather h2{margin:0 0 12px 0; font-size:28px; font-weight:600; color:var(--muted)}
+  #loc{color:var(--accent); font-weight:600}
+  .hour-grid{display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:16px; margin-top:8px; flex:1;}
+  .hour{background:rgba(255,255,255,0.06); border:1px solid var(--panel-strong); border-radius:14px; padding:12px 14px; display:flex; flex-direction:column; justify-content:space-between;}
+  .t{font-size:22px; color:var(--muted)}
+  .row{display:flex; align-items:center; gap:12px;}
+  .ico{font-size:34px; line-height:1}
+  .desc{font-size:22px}
+  .met{font-size:20px; color:var(--muted)}
+
+  /* Right-hand content panel */
+  #main-content{flex:1; background:var(--panel); border:1px solid var(--panel-strong); border-radius:16px; padding:24px 32px; display:flex; flex-direction:column; overflow:hidden;}
+  #main-content h2{margin:0 0 12px 0; font-size:28px; font-weight:600; color:var(--muted)}
+
+  /* Vertical auto-scroll area for headlines */
+  .news-viewport{position:relative; flex:1; overflow:hidden;}
+  .news-rail{position:absolute; inset:0 auto auto 0; display:flex; flex-direction:column; gap:12px; will-change:transform;}
+  .news-item{background:rgba(255,255,255,0.06); border:1px solid var(--panel-strong); border-radius:14px; padding:12px 14px; font-size:22px;}
+  .news-meta{font-size:18px; color:var(--muted)}
+
+  /* Bottom ticker */
+  #newsbar{width:100%; background:rgba(0,0,0,0.35); border-top:1px solid var(--panel-strong);} 
+  #newsbar .track{white-space:nowrap; overflow:hidden; padding:18px 0}
+  #newsbar .marquee{display:inline-block; padding-left:100%; animation:scroll 28s linear infinite}
+  #newsbar .tag{background:#f59e0b; color:#111; font-weight:700; padding:0.3em 0.6em; border-radius:0.6em; margin-right:0.8em}
+  @keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="wrap">
+    <div class="top">
+      <img id="logo" src="ttp logo.001.png" alt="The Two Pennies logo" />
+      <div class="right">
+        <div id="clock">--:--</div>
+        <div id="date">&nbsp;</div>
+      </div>
+    </div>
+
+    <div class="middle">
+      <section id="weather" aria-live="polite">
+        <h2>Weather · <span id="loc">North Shields</span></h2>
+        <div class="hour-grid" id="hourGrid"></div>
+      </section>
+
+      <div id="main-content">
+        <h2>Headlines</h2>
+        <div class="news-viewport">
+          <ul id="newsRail" class="news-rail" style="list-style:none; padding:0; margin:0"></ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="newsbar" aria-live="polite">
+      <div class="track"><span class="marquee" id="newsText"><span class="tag">TTP News</span> Loading…</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ===== Clock & Date =====
+  function updateClock(){
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    document.getElementById('clock').textContent = `${hh}:${mm}`;
+    const opts = { weekday:'long', year:'numeric', month:'long', day:'numeric' };
+    document.getElementById('date').textContent = now.toLocaleDateString(undefined, opts);
+  }
+  updateClock(); setInterval(updateClock, 1000);
+
+  // ===== Venue-based theme (12:00–24:00) =====
+  function setTheme(now = new Date()){
+    const h = now.getHours();
+    const m = now.getMonth();
+    let gradient;
+    if(h >= 12 && h < 17){
+      gradient = 'radial-gradient(1200px 800px at 20% 0%, #0f141a 0%, #0f171f 40%, #14212b 65%)'; // afternoon
+    } else if(h >= 17 && h < 21){
+      gradient = 'radial-gradient(1200px 800px at 20% 0%, #261a2b 0%, #1b1426 40%, #161326 65%)'; // evening
+    } else if(h >= 21 && h <= 23){
+      gradient = 'radial-gradient(1200px 800px at 20% 0%, #0a0d12 0%, #0b0f14 40%, #0c0f12 65%)'; // late night
+    } else {
+      gradient = 'radial-gradient(1200px 800px at 20% 0%, #000000 0%, #000000 60%)'; // closed hours
+    }
+    let accent;
+    if([11,0,1].includes(m)) accent = '#93c5fd';
+    else if([2,3,4].includes(m)) accent = '#86efac';
+    else if([5,6,7].includes(m)) accent = '#facc15';
+    else accent = '#fda4af';
+    document.body.style.background = gradient;
+    document.documentElement.style.setProperty('--accent', accent);
+  }
+  setTheme();
+  setInterval(setTheme, 10 * 60 * 1000);
+
+  // ===== Weather (Open‑Meteo) =====
+  const LAT = 55.01, LON = -1.45;
+  const HOURLY = 'temperature_2m,precipitation,precipitation_probability,windspeed_10m,weathercode';
+  const URL = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=${HOURLY}&forecast_days=1`;
+  const WMO_DESC = {0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Depositing rime fog',51:'Light drizzle',53:'Moderate drizzle',55:'Dense drizzle',56:'Freezing drizzle',57:'Dense freezing drizzle',61:'Slight rain',63:'Moderate rain',65:'Heavy rain',66:'Freezing rain',67:'Heavy freezing rain',71:'Slight snow',73:'Moderate snow',75:'Heavy snow',77:'Snow grains',80:'Rain showers',81:'Heavy rain showers',82:'Violent rain showers',85:'Snow showers',86:'Heavy snow showers',95:'Thunderstorm',96:'Thunderstorm w/ hail',99:'Thunderstorm w/ heavy hail'};
+  const WMO_EMOJI = {0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',48:'🌫️',51:'🌦️',53:'🌦️',55:'🌧️',56:'🌧️',57:'🌧️',61:'🌧️',63:'🌧️',65:'🌧️',66:'🌧️',67:'🌧️',71:'❄️',73:'❄️',75:'❄️',77:'❄️',80:'🌧️',81:'🌧️',82:'⛈️',85:'❄️',86:'❄️',95:'⛈️',96:'⛈️',99:'⛈️'};
+  async function loadWeather(){
+    const grid = document.getElementById('hourGrid');
+    grid.innerHTML = '<div class="met">Loading…</div>';
+    try{
+      const res = await fetch(URL);
+      const data = await res.json();
+      const t = data.hourly.time;
+      const temp = data.hourly.temperature_2m;
+      const prec = data.hourly.precipitation;
+      const prob = data.hourly.precipitation_probability || [];
+      const wind = data.hourly.windspeed_10m;
+      const code = data.hourly.weathercode;
+      const nowISO = new Date().toISOString().slice(0,13);
+      const startIdx = Math.max(0, t.findIndex(x => x.startsWith(nowISO)));
+      const hours = Array.from({length:6},(_,i)=> startIdx + i).filter(i=> i < t.length);
+      grid.innerHTML = hours.map(i=>{
+        const timeLabel = t[i].slice(11,16);
+        const c = code[i];
+        const emoji = WMO_EMOJI[c] || '❔';
+        const desc = WMO_DESC[c] || '—';
+        const pprob = (prob[i] ?? null);
+        const precipPart = pprob==null ? `${prec[i].toFixed(1)} mm` : `${prec[i].toFixed(1)} mm • ${pprob}%`;
+        return `<div class="hour"><div class="t">${timeLabel}</div><div class="row"><div class="ico">${emoji}</div><div class="desc">${desc}</div></div><div class="met">${Math.round(temp[i])}°C • Rain: ${precipPart} • Wind: ${Math.round(wind[i])} km/h</div></div>`;
+      }).join('');
+    }catch(e){
+      grid.innerHTML = '<div class="met">Weather unavailable</div>';
+    }
+  }
+  loadWeather();
+
+  // ===== Bottom ticker (static, editable) =====
+  const headlines = [
+    'Every Friday is Fizz Friday',
+    'Every NUFC game shown at No. 1 The Basement',
+    'Follow us on Facebook for our latest news and offers',
+    'Try our incredible SweetShop Cocktails',
+    'Check out our brand new wine selection'
+  ];
+  function startTicker(){
+    const text = document.getElementById('newsText');
+    text.innerHTML = `<span class="tag">TTP News</span> ${headlines.join(' • ')}`;
+  }
+  startTicker();
+
+  // ===== Live headlines with proxy-first fallback + vertical autoscroll =====
+  async function loadLiveHeadlines(){
+    const rail = document.getElementById('newsRail');
+    rail.innerHTML = `<li class="news-item">Loading latest headlines…</li>`;
+    const FEED = 'https://feeds.bbci.co.uk/news/rss.xml';
+    const PROXY = '/.netlify/functions/rss-proxy';
+
+    const render = (items)=>{
+      const titles = items.map(it => it.title || it).filter(Boolean);
+      const cards = titles.slice(0,12).map(t => `<li class=\"news-item\">${t}</li>`).join('');
+      // Duplicate for seamless loop
+      rail.innerHTML = cards + cards;
+      startVerticalScroll();
+    };
+
+    try{
+      const r1 = await fetch(`${PROXY}?url=${encodeURIComponent(FEED)}`);
+      if(r1.ok){
+        const d1 = await r1.json();
+        if(d1 && d1.items && d1.items.length){ render(d1.items); return; }
+      }
+      throw new Error('Proxy unavailable or empty');
+    }catch(err){
+      try{
+        const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(FEED)}`;
+        const r2 = await fetch(apiUrl);
+        const d2 = await r2.json();
+        if(d2 && d2.items){ render(d2.items); return; }
+        rail.innerHTML = `<li class=\"news-item\">Unable to load headlines</li>`;
+      }catch(e){
+        rail.innerHTML = `<li class=\"news-item\">Unable to load headlines</li>`;
+      }
+    }
+  }
+
+  function startVerticalScroll(){
+    const rail = document.getElementById('newsRail');
+    const viewport = rail.parentElement; // .news-viewport
+    let pos = 0; // px
+
+    // compute total scroll distance: half the rail height (since duplicated)
+    function step(){
+      const half = rail.scrollHeight / 2;
+      pos += 0.5; // speed (px per frame approx at 60fps => ~30px/sec)
+      if(pos >= half) pos = 0;
+      rail.style.transform = `translateY(${-pos}px)`;
+      requestAnimationFrame(step);
+    }
+    // ensure rail is tall enough before starting
+    requestAnimationFrame(step);
+
+    // Pause on hover (if needed during testing)
+    viewport.addEventListener('mouseenter', ()=> rail.dataset.pause = '1');
+    viewport.addEventListener('mouseleave', ()=> rail.dataset.pause = '0');
+  }
+
+  loadLiveHeadlines();
+</script>
+
+<!-- Netlify Function remains the same as previous version (at /netlify/functions/rss-proxy.js) -->
+</body>
+</html>
